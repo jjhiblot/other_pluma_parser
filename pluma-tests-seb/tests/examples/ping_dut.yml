@@ -1,0 +1,6 @@
+!test
+    name: "ping dut"
+    sequence:
+        - !host ping {DUT_IP} -w{reply_wait}
+    defaults:
+        reply_wait: 2

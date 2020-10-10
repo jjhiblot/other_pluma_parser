@@ -1,0 +1,8 @@
+!test
+    name: "ping host"
+    sequence:
+        - !dut echo {param1} {param2} {param3}
+    defaults:
+        param1: "default_1"
+        param2: "default_2"
+        param3: "default_3"

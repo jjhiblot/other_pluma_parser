@@ -1,0 +1,4 @@
+    defaults_proto1:
+        expected_linux_name: 'Linux multimediaptf-proto1-tester'
+    defaults_evk:
+        expected_linux_name: 'Linux multimediaptf-evk'

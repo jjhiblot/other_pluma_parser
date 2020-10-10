@@ -1,0 +1,13 @@
+!test
+    name: "bidir"
+    sequence:
+        - !yml
+            path: tests/examples/ping_dut.yml
+            parameters:
+                reply_wait: "{reply_wait}"
+        - !yml
+            path: tests/examples/ping_host.yml
+            parameters:
+                reply_wait: "{reply_wait}"
+    defaults:
+            reply_wait: 5

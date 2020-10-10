@@ -1,0 +1,50 @@
+# Come of the variables are defined in a global context:
+# context = {"board":"EVK", "overrides": ['evk', 'seb','imx8mm']}
+
+!test
+    defaults:
+        continue_on_fail: true
+        iterations: 1
+        a_param_top: "boom"
+        image_format: "png"
+
+    parameters:
+        #override the defaults
+        a_param_top: "baam"
+        tmp_dir: /tmp
+        image_format: "jpg"
+
+    setup:
+        - !host "start-web-server"
+        - !dut "ifconfig eth0 up"
+        - !deploy
+            src: ["file://a_binary"]
+            dst: "/usr/lib"
+
+    sequence:
+        # deploy some files
+        - !deploy
+            src: ["file://a_file", "file://another _file"]
+            dst: "/data/"
+        - !deploy
+            src: ["file://other_files/*{image_format}"]
+            dst: "{tmp_dir}"
+        # scan for error in kernel log
+        - !dut '[ -z "$(dmesg | grep -i "failed")" ]'
+        - !python
+            module: testsuite.kernel
+            test: KernelModulesLoaded
+            args:
+                modules: [galcore, brcmfmac]
+        - !python
+            module: scripts/wifi_router_configure.py
+            test: configure_ap
+            args:
+                ssid: "myssid"
+                psk: "mypsk"
+                keymgmt: "WPA2"
+                mode: "g"
+                
+
+    teardown:
+        - !dut echo "Test Done"

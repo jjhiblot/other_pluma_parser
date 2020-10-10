@@ -1,0 +1,14 @@
+
+#variable:
+    #ltp_blk_dev: "/dev/mmblk2p4"
+
+#variables:
+##ifdef PROTO1_REV
+    #board_rev: xstr(PROTO1_REV)
+##else
+    #board_rev: "rev1"
+##endif
+    #total_mem_size: "1992"
+
+
+#TBD TBD TBD TBD TBD TBD TBD TBD 

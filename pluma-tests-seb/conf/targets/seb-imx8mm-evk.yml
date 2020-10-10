@@ -1,0 +1,11 @@
+#system:
+  #prompt_regex: "\\S+@\\S+:"
+  #credentials:
+    #login: root
+    #password: root
+
+#variables:
+    #ltp_blk_dev: "/dev/mmblk1p4"
+    #total_mem_size: "1992"
+
+#TBD TBD TBD TBD TBD TBD TBD TBD 

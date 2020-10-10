@@ -1,0 +1,13 @@
+!test
+    name: "plan"
+    defaults:
+        continue_on_fail: true
+        iterations: 1
+
+    sequence:
+        - !yml
+            path: tests/examples/ping_bidir.yml
+        - !yml
+            path: tests/examples/uname.yml
+        - !yml
+            path: tests/examples/meminfo.yml

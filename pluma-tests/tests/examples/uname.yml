@@ -1,0 +1,7 @@
+!test
+    name: "uname"
+    defaults:
+        expected_linux_name: "Linux"
+
+    sequence:
+        - !dut uname -a | grep '{expected_linux_name}'
