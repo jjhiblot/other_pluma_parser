@@ -170,3 +170,55 @@ examples:
 
     system:
         overrides: ["board2", "project_name", "imx8mm", "imx8", "aarch64"]
+
+
+## TODO ?? list
+
+### set variables in the sequence
+    sequence:
+       - !set {name: a_variable, value: ...}
+
+### capture the output of a !dut cmd
+
+Capture the stdout and stderr of the command, and make them available to python through special variables
+
+    sequence:
+       - !dut "dmesg"
+       - !eval '"failed to load galcore" not in dut.stdout'
+
+### emit metrics
+
+    !metric
+      - "suspend_current": !measure supply_current
+      - "suspend_voltage": !measure core_vdd
+
+### !extract
+    Is an action that extract values from a file usgina regexp
+
+    sequence:
+      - !dut ./execute_a_perf_test.sh | tee /tmp/log
+      - !fetch {src: /tmp/log, dst: /tmp/log}
+      - !metric
+          - "perf_read": !extract  { regexp: 'read: (.*)MBps', file: /tmp/log}
+          - "perf_write": !extract  { regexp: 'write: (.*)MBps', file: /tmp/log}
+  
+
+### measurements
+
+Provide a way to describe measurement tools and measurement
+
+configuration:
+    measurements:
+        my_fluke: !fluke_model_12345
+            configuration:
+               .....
+        supply_current: !current_meter
+              equipement: "my_fluke"
+              channel: 4
+
+Takes a measurement from an equipement/channel described in the configuration
+usage:
+
+    !measure supply_current
+    
+               
