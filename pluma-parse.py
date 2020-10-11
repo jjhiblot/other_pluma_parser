@@ -6,6 +6,17 @@ import yaml
 
 context = {"board":"EVK", "overrides": ['evk', 'seb','imx8mm'], "DUT_IP":"192.168.1.29", "HOST_IP":"192.168.1.41", "mem_size":1992}
 
+class Evaluator:
+    def __init__(self, s):
+        self.s = s
+
+    def post_init(self, parent):
+        self.parent = parent
+        self.value = eval(self.s.format(**self.parent.parameters))
+
+    def __repr__(self):
+        return f'{self.value}'
+
 class PathFinder():
     '''class holding the list of directories to be searched when looking for a file'''
     paths = []
@@ -102,6 +113,8 @@ class Test(Action):
         # format the strings
         d = self.parent.parameters if self.parent else self.context
         for k,v in parameters.items():
+                if isinstance(v,Evaluator):
+                    parameters[k].post_init(self)
                 if isinstance(v,str):
                     parameters[k] = v.format(**d)
 
@@ -256,6 +269,10 @@ def construct_from_yml(loader: YamlExtendedLoader, node: yaml.Node) -> Any:
         obj.parameters = params
     return obj
 
+def construct_from_eval(loader: YamlExtendedLoader, node: yaml.Node) -> Any:
+    s = loader.construct_scalar(node)
+    return Evaluator(s)
+
 yaml.add_constructor('!test', construct_test, YamlExtendedLoader)
 yaml.add_constructor('!dut', construct_dut, YamlExtendedLoader)
 yaml.add_constructor('!host', construct_host, YamlExtendedLoader)
@@ -263,6 +280,7 @@ yaml.add_constructor('!deploy', construct_deploy, YamlExtendedLoader)
 yaml.add_constructor('!python', construct_python_test, YamlExtendedLoader)
 yaml.add_constructor('!remove', construct_none, YamlExtendedLoader)
 yaml.add_constructor('!yml', construct_from_yml, YamlExtendedLoader)
+yaml.add_constructor('!eval', construct_from_eval, YamlExtendedLoader)
 
 
     #r = yaml.load(f.read(), Loader = YamlExtendedLoader)
