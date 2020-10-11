@@ -85,7 +85,7 @@ class Test(Action):
         for append in PathFinder.locateall(filename+"_append", current_dir = root):
             with open(append, 'r') as f:
                 content += '\n' + f.read()
-            
+ 
         loader = YamlExtendedLoader(content, _root=path.dirname(main))
         r = loader.get_single_data()
         loader.dispose()
