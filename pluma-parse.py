@@ -151,14 +151,19 @@ class Test(Action):
          return "(name=%r, defaults=%s, param=%s, seq=%s)" % (
              self.__class__.__name__, self.defaults, self.parameters, self.sequence)
 
-class Deploy(Action):
-    def __init__(self, src, dst):
+class DeployFetch(Action):
+    def __init__(self, is_deploy, src, dst):
+        self.is_deploy = is_deploy
         self.src = src
         self.dst = dst
 
     def run(self):
         src = [ s.format(**self.parent.parameters) for s in self.src]
-        print(f'deploy: {src} -> {self.dst.format(**self.parent.parameters)}')
+        dst = self.dst.format(**self.parent.parameters)
+        if self.is_deploy:
+            print(f'deploy: {src} -> {dst}')
+        else:
+            print(f'fetch: {src} -> {dst}')
         return "N/A"
         
     def __repr__(self):
@@ -244,7 +249,11 @@ def construct_python_test(loader, node: yaml.Node):
 
 def construct_deploy(loader, node: yaml.Node):
     fields = OverrideDict(loader.construct_mapping(node))
-    return Deploy(fields.get("src"),fields.get("dst"))
+    return DeployFetch(is_deploy=True, src = fields.get("src"), dst = fields.get("dst"))
+
+def construct_fetch(loader, node: yaml.Node):
+    fields = OverrideDict(loader.construct_mapping(node))
+    return DeployFetch(is_deploy=False, src = fields.get("src"), dst = fields.get("dst"))
 
 def construct_none(loader, node: yaml.Node):
     return None
@@ -277,6 +286,7 @@ yaml.add_constructor('!test', construct_test, YamlExtendedLoader)
 yaml.add_constructor('!dut', construct_dut, YamlExtendedLoader)
 yaml.add_constructor('!host', construct_host, YamlExtendedLoader)
 yaml.add_constructor('!deploy', construct_deploy, YamlExtendedLoader)
+yaml.add_constructor('!fetch', construct_fetch, YamlExtendedLoader)
 yaml.add_constructor('!python', construct_python_test, YamlExtendedLoader)
 yaml.add_constructor('!remove', construct_none, YamlExtendedLoader)
 yaml.add_constructor('!yml', construct_from_yml, YamlExtendedLoader)
