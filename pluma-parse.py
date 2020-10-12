@@ -4,20 +4,9 @@ from os import path
 from typing import Any, IO
 import yaml
 
-context = {"board":"EVK", "overrides": ['evk', 'seb','imx8mm'], "DUT_IP":"192.168.1.29", "HOST_IP":"192.168.1.41", "mem_size":1992}
+global_context = {"board":"EVK", "overrides": ['evk', 'seb','imx8mm'], "DUT_IP":"192.168.1.29", "HOST_IP":"192.168.1.41", "mem_size":1992}
 
-class Evaluator:
-    def __init__(self, s):
-        self.s = s
-
-    def post_init(self, parent):
-        self.parent = parent
-        self.value = eval(self.s.format(**self.parent.parameters))
-
-    def __repr__(self):
-        return f'{self.value}'
-
-class PathFinder():
+class PathFinder:
     '''class holding the list of directories to be searched when looking for a file'''
     paths = []
 
@@ -59,20 +48,76 @@ class PathFinder():
 
 class OverrideDict(dict):
     def get(self, name, default = None):
-        global context
-        for ov in context["overrides"]:
+        global global_context
+        for ov in global_context["overrides"]:
             nk = name + '_' + ov
             if nk in self:
                 return self[nk]
         return super().get(name, default)
 
-class Action:
-    def __init__(self):
-        pass
+def expand_str(obj, context):
+    if isinstance(obj, dict):
+        for k in obj:
+             return { k:expand_str(v, context) for (k,v ) in obj.items() }
+    elif isinstance(obj, list):
+        return [ expand_str(e, context) for e in obj]
+    elif isinstance(obj, str):
+        s= obj.format(**context)
+        if (s != obj):
+            print(f'{obj} -> {s}')
+        return s
+    else:
+        return obj
+
+class YmlObject:
+    @staticmethod
+    def post_init_children(obj, parent):
+        if isinstance(obj, dict):
+            for k in obj:
+                YmlObject.post_init_children(obj[k], parent)
+        elif isinstance(obj, list):
+            for e in obj:
+                YmlObject.post_init_children(e, parent)
+        elif isinstance(obj, YmlObject):
+            obj.post_init(parent)
+
+    def post_init(self, parent):
+        global global_context
+        context = global_context
+        if hasattr(parent, "parameters"):
+            if parent.parameters:
+                context = {**context, **parent.parameters}
+                    
+        for member in dir(self):
+            if member.startswith('__') and member.endswith('__'):
+                continue
+            child = getattr(self, member)
+            setattr(self, member, expand_str(child, context))
+
+        for member in dir(self):
+            if member.startswith('__') and member.endswith('__'):
+                continue
+            if member == "parent":
+                continue
+            child = getattr(self, member)
+            YmlObject.post_init_children(child, self)
+
+        self.parent = parent
+
+class Evaluator(YmlObject):
+    def __init__(self, s):
+        self.s = s
+
+    def get(self):
+        return eval(self.s.format({**global_context, **self.parent.parameters}))
 
     def post_init(self, parent):
         self.parent = parent
 
+    def __repr__(self):        
+        return f'{self.get()}'
+
+class Action(YmlObject):
     def run(self):
         return "N/A"
 
@@ -92,31 +137,21 @@ class Test(Action):
         r._root = path.dirname(main)
         return r
 
-    def __init__(self, name, context, sequence, defaults = {}, parameters = {}, setup = [] , teardown = []):
+    def __init__(self, name, sequence, defaults = {}, parameters = {}, setup = [] , teardown = []):
          self.name = name
          self.sequence = sequence
          self.defaults = defaults
          self.setup = setup
          self.teardown = teardown
          self.parameters = parameters
-         self.context = context
 
     def post_init(self, parent):
-        super().post_init(parent)
+        self.parent = parent
 
         # merge default, context and parameters
-        parameters = {**self.defaults, **self.context}
-        parameters = {**parameters, **self.parameters}
+        parameters = {**self.defaults, **self.parameters}
         # remove items that have been deleted
         parameters = { k: v for k,v in parameters.items() if v != None}
-
-        # format the strings
-        d = self.parent.parameters if self.parent else self.context
-        for k,v in parameters.items():
-                if isinstance(v,Evaluator):
-                    parameters[k].post_init(self)
-                if isinstance(v,str):
-                    parameters[k] = v.format(**d)
 
         if "iterations" not in parameters:
             parameters["iterations"] = 1
@@ -124,13 +159,7 @@ class Test(Action):
             parameters["continue_on_fail"] = 1
 
         self.parameters = parameters
-
-        for a in self.setup:
-            a.post_init(self)
-        for a in self.sequence:
-            a.post_init(self)
-        for a in self.teardown:
-            a.post_init(self)
+        super().post_init(parent)
 
 
     def run(self):
@@ -218,14 +247,14 @@ class PythonTest(Action):
             self.__class__.__name__, self.test, self.args)
 
 def get_field_overrides(dic, name, default = None, overrides = []):
-    for ov in context["overrides"]:
+    for ov in global_context["overrides"]:
         nk = name + '_' + ov
         if nk in dic:
             return dic[nk]
     return dic.get(name, default)
 
 def construct_test(loader, node: yaml.Node):
-    global context
+    global global_context
     fields = OverrideDict(loader.construct_mapping(node))
     
     name  = fields.get("name")
@@ -235,7 +264,7 @@ def construct_test(loader, node: yaml.Node):
     parameters = fields.get("parameters", {})
     teardown = fields.get("teardown", [])
 
-    return Test(name = name, context = context, sequence = sequence, setup = setup, teardown = teardown, parameters = parameters, defaults = defaults)
+    return Test(name = name, sequence = sequence, setup = setup, teardown = teardown, parameters = parameters, defaults = defaults)
 
 def construct_dut(loader, node: yaml.Node):
     return DutCmd(loader.construct_scalar(node))
@@ -273,7 +302,7 @@ def construct_from_yml(loader: YamlExtendedLoader, node: yaml.Node) -> Any:
     fields = OverrideDict(loader.construct_mapping(node))
     base_name = fields.get("path")
     params = fields.get("parameters", None)
-    obj = Test.from_yaml(context, base_name, root = loader._root)
+    obj = Test.from_yaml(global_context, base_name, root = loader._root)
     if params != None:
         obj.parameters = params
     return obj
@@ -293,14 +322,15 @@ yaml.add_constructor('!yml', construct_from_yml, YamlExtendedLoader)
 yaml.add_constructor('!eval', construct_from_eval, YamlExtendedLoader)
 
 
-    #r = yaml.load(f.read(), Loader = YamlExtendedLoader)
-PathFinder.add(sys.argv[2])
-PathFinder.add(sys.argv[3])
-r = Test.from_yaml(context, sys.argv[1], "./")
-r.post_init(None)
+if __name__ == "__main__":
+        #r = yaml.load(f.read(), Loader = YamlExtendedLoader)
+    PathFinder.add(sys.argv[2])
+    PathFinder.add(sys.argv[3])
+    r = Test.from_yaml(global_context, sys.argv[1], "./")
+    r.post_init(None)
 
-#print(yaml.dump(r))
-r.run()
+    #print(yaml.dump(r))
+    r.run()
 
 #Action :
     #does something.
