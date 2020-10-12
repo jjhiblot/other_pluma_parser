@@ -1,6 +1,6 @@
 !test
     name: "ping dut"
     sequence:
-        - !host ping {DUT_IP} -w{reply_wait}
+        - !host ping {DUT_IP} -w{reply_wait} | tee /tmp/ping.log
     defaults:
         reply_wait: 2

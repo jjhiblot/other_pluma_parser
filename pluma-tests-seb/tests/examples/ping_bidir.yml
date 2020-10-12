@@ -9,5 +9,11 @@
             path: tests/examples/ping_host.yml
             parameters:
                 reply_wait: "{reply_wait}"
+        - !dut 'echo  "{reply_wait}"'
+        - !set { var : dummy, value: "{reply_wait}" }
+        - !dut 'echo  "{reply_wait}"'
+        - !dut 'echo  dummy "{dummy}"'
+        - !dut 'echo  "{reply_wait}"'
+        - !dut 'echo  dummy  "{dummy}"'
     defaults:
-            reply_wait: 5
+            reply_wait: !eval random.randint(0,5)

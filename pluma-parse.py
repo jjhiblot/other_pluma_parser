@@ -1,8 +1,12 @@
+import copy
+import random
 import os
 import sys
 from os import path
 from typing import Any, IO
 import yaml
+from collections.abc import Iterable
+from collections.abc import Hashable
 
 global_context = {"board":"EVK", "overrides": ['evk', 'seb','imx8mm'], "DUT_IP":"192.168.1.29", "HOST_IP":"192.168.1.41", "mem_size":1992}
 
@@ -16,6 +20,7 @@ class PathFinder:
 
     @staticmethod
     def locate(filename: str, current_dir: str = None) -> str:
+        filename = str(filename)
         if path.isabs(filename):
             #print(f"Found {filename}")
             return filename
@@ -32,6 +37,7 @@ class PathFinder:
 
     @staticmethod
     def locateall(filename: str, current_dir: str = None) -> str:
+        filename = str(filename)
         result = []
         if path.isabs(filename):
             #print(f"Found {[filename]}")
@@ -55,19 +61,34 @@ class OverrideDict(dict):
                 return self[nk]
         return super().get(name, default)
 
-def expand_str(obj, context):
+
+class LazyStr():
+    def __init__(self, s, parent = None):
+        self.fmt = s
+        self.parent = parent
+
+    def __str__(self):
+        context = global_context
+        if hasattr(self.parent, "parameters"):
+            if self.parent.parameters:
+                    context = {**context, **self.parent.parameters}
+        out = self.fmt.format(**context)
+        if (out != self.fmt):
+            print(f'{self.fmt} -> {out}')
+        return out
+
+def expand_str(obj, parent):
     if isinstance(obj, dict):
         for k in obj:
-             return { k:expand_str(v, context) for (k,v ) in obj.items() }
+             return { k:expand_str(v, parent) for (k,v ) in obj.items() }
     elif isinstance(obj, list):
-        return [ expand_str(e, context) for e in obj]
-    elif isinstance(obj, str):
-        s= obj.format(**context)
-        if (s != obj):
-            print(f'{obj} -> {s}')
-        return s
+        return [ expand_str(e, parent) for e in obj]
+    elif isinstance(obj, LazyStr):
+        obj.parent = parent
+        return obj
     else:
         return obj
+
 
 class YmlObject:
     @staticmethod
@@ -84,6 +105,7 @@ class YmlObject:
     def post_init(self, parent):
         global global_context
         context = global_context
+
         if hasattr(parent, "parameters"):
             if parent.parameters:
                 context = {**context, **parent.parameters}
@@ -92,7 +114,7 @@ class YmlObject:
             if member.startswith('__') and member.endswith('__'):
                 continue
             child = getattr(self, member)
-            setattr(self, member, expand_str(child, context))
+            #setattr(self, member, expand_str(child, parent))
 
         for member in dir(self):
             if member.startswith('__') and member.endswith('__'):
@@ -101,6 +123,7 @@ class YmlObject:
                 continue
             child = getattr(self, member)
             YmlObject.post_init_children(child, self)
+
 
         self.parent = parent
 
@@ -124,10 +147,11 @@ class Action(YmlObject):
 class Test(Action):
     @staticmethod
     def from_yaml(context, filename, root = None):
+        filename = str(filename)
         main = PathFinder.locate(filename, current_dir = root)
         with open(main, 'r') as f:
             content = f.read()
-        for append in PathFinder.locateall(filename+"_append", current_dir = root):
+        for append in PathFinder.locateall(filename + "_append", current_dir = root):
             with open(append, 'r') as f:
                 content += '\n' + f.read()
  
@@ -208,7 +232,7 @@ class Cmd(Action):
 
 class DutCmd(Cmd):
     def run(self):
-        cmd = self.cmd.format(**self.parent.parameters)
+        cmd = self.cmd
         print(f'DUT cmd: {cmd}')
         return "N/A"
     def __repr__(self):
@@ -217,7 +241,7 @@ class DutCmd(Cmd):
 
 class HostCmd(Cmd):
     def run(self):
-        cmd = self.cmd.format(**self.parent.parameters)
+        cmd = self.cmd
         print(f'HOST cmd: {cmd}')
         return "N/A"
     def __repr__(self):
@@ -232,13 +256,8 @@ class PythonTest(Action):
 
     def run(self):
         args = {}
-        module = self.module.format(**self.parent.parameters)
-        test = self.test.format(**self.parent.parameters)
-        for k,v in self.args.items():
-            if isinstance(v,str):
-                args[k] = v.format(**self.parent.parameters)
-            else:
-                args[k] = v
+        module = self.module
+        test = self.test
         print(f'python test: {module}:{test}({args})')
         return "N/A"
 
@@ -311,6 +330,44 @@ def construct_from_eval(loader: YamlExtendedLoader, node: yaml.Node) -> Any:
     s = loader.construct_scalar(node)
     return Evaluator(s)
 
+class VariableSetter(Action):
+    def __init__(self, var, value):
+        self.var = var
+        self.value = value
+
+    def run(self):
+        var = f'{self.var}'
+        value = eval(f'{self.value}')
+        self.parent.parameters[var] = eval(f'{self.value}')
+        print(f"SET {var} {self.parent.parameters[var]}")
+        return "ignore"
+
+def construct_set(loader: YamlExtendedLoader, node: yaml.Node) -> Any:
+    fields = OverrideDict(loader.construct_mapping(node))
+    var = fields.get("var")
+    value = fields.get("value")
+    return VariableSetter(var, value)
+
+def construct_lazy_str(loader: YamlExtendedLoader, node: yaml.Node) -> Any:
+    return LazyStr(loader.construct_scalar(node))
+
+def construct_mapping(self, node, deep=False):
+    if not isinstance(node, yaml.MappingNode):
+        raise ConstructorError(None, None,
+                "expected a mapping node, but found %s" % node.id,
+                node.start_mark)
+    mapping = {}
+    for key_node, value_node in node.value:
+        key = self.construct_object(key_node, deep=deep)
+        if not isinstance(key, Hashable):
+            raise ConstructorError("while constructing a mapping", node.start_mark,
+                    "found unhashable key", key_node.start_mark)
+        value = self.construct_object(value_node, deep=deep)
+        mapping[f'{key}'] = value
+    return mapping
+
+YamlExtendedLoader.construct_mapping = construct_mapping
+
 yaml.add_constructor('!test', construct_test, YamlExtendedLoader)
 yaml.add_constructor('!dut', construct_dut, YamlExtendedLoader)
 yaml.add_constructor('!host', construct_host, YamlExtendedLoader)
@@ -320,7 +377,8 @@ yaml.add_constructor('!python', construct_python_test, YamlExtendedLoader)
 yaml.add_constructor('!remove', construct_none, YamlExtendedLoader)
 yaml.add_constructor('!yml', construct_from_yml, YamlExtendedLoader)
 yaml.add_constructor('!eval', construct_from_eval, YamlExtendedLoader)
-
+yaml.add_constructor('!set', construct_set, YamlExtendedLoader)
+yaml.add_constructor('tag:yaml.org,2002:str',construct_lazy_str, YamlExtendedLoader)
 
 if __name__ == "__main__":
         #r = yaml.load(f.read(), Loader = YamlExtendedLoader)
