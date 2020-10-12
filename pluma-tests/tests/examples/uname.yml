@@ -4,4 +4,4 @@
         expected_linux_name: "Linux"
 
     sequence:
-        - !dut uname -a | grep '{expected_linux_name}'
+        - !dut f"uname -a | grep '{expected_linux_name}'"

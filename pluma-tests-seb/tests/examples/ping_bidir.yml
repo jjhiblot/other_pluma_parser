@@ -1,13 +1,7 @@
 !test
     name: "bidir"
     sequence:
-        - !yml
-            path: tests/examples/ping_dut.yml
-            parameters:
-                reply_wait: "{reply_wait}"
-        - !yml
-            path: tests/examples/ping_host.yml
-            parameters:
-                reply_wait: "{reply_wait}"
+        - !yml tests/examples/ping_dut.yml
+        - !yml tests/examples/ping_host.yml
     defaults:
-            reply_wait: 5
+            reply_wait: !eval random.randint(0,5)

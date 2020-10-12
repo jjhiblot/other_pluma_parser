@@ -1,13 +1,17 @@
-!test
-    name: "plan"
-    defaults:
-        continue_on_fail: true
-        iterations: 1
+!group
+    name: "SEB test plan"
 
-    sequence:
+    list:
+        - !yml tests/examples/ping_bidir.yml
+        - !yml tests/examples/uname.yml
         - !yml
-            path: tests/examples/ping_bidir.yml
+            path: tests/examples/echo.yml
+            parameters:
+                param1: 'keep the "param2"'
+                param3: "default value"
         - !yml
-            path: tests/examples/uname.yml
-        - !yml
-            path: tests/examples/meminfo.yml
+            path: tests/examples/kernel.yml
+            parameters:
+                #be more restrictive on the amount of free mem that default
+                available_mb: !eval int({mem_size} *  (50 / 100) )
+                mem_size: 300

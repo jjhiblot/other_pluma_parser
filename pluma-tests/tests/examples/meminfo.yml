@@ -1,6 +1,0 @@
-!python
-    module: testsuite.memory
-    test: MemorySize    
-    args:
-        total_mb: "{mem_size}"
-        available_mb: 500

@@ -1,0 +1,10 @@
+!python
+    module: testsuite.memory
+    test: MemorySize    
+    args:
+        total_mb: f"{mem_size}"
+        available_mb: f'{available_min}'
+    defaults:
+        #by default fail is less then 20% is available
+        available_min: !eval int({mem_size} *  (20 / 100) )
+

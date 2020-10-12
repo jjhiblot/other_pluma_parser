@@ -1,8 +1,13 @@
+import difflib
+import copy
+import random
 import os
 import sys
 from os import path
 from typing import Any, IO
 import yaml
+from collections.abc import Iterable
+from collections.abc import Hashable
 
 global_context = {"board":"EVK", "overrides": ['evk', 'seb','imx8mm'], "DUT_IP":"192.168.1.29", "HOST_IP":"192.168.1.41", "mem_size":1992}
 
@@ -16,8 +21,9 @@ class PathFinder:
 
     @staticmethod
     def locate(filename: str, current_dir: str = None) -> str:
+        filename = str(filename)
         if path.isabs(filename):
-            #print(f"Found {filename}")
+            # print(f"Found {filename}")
             return filename
         l = [current_dir] if current_dir else []
         if PathFinder.paths:
@@ -25,16 +31,17 @@ class PathFinder:
         for d in l:
             p = path.join(d, filename)
             if path.exists(p):
-                #print(f"Found {p}")
+                # print(f"Found {p}")
                 return p
-        #print(f"Did not find {p}")
+        # print(f"Did not find {p}")
         return None
 
     @staticmethod
     def locateall(filename: str, current_dir: str = None) -> str:
+        filename = str(filename)
         result = []
         if path.isabs(filename):
-            #print(f"Found {[filename]}")
+            # print(f"Found {[filename]}")
             return [filename]
         l = [current_dir] if current_dir else []
         if PathFinder.paths:
@@ -43,11 +50,12 @@ class PathFinder:
             p = path.join(d, filename)
             if path.exists(p):
                 result.append(p)
-        #print(f"Found {result}")
+        # print(f"Found {result}")
         return result
 
+
 class OverrideDict(dict):
-    def get(self, name, default = None):
+    def get(self, name, default=None):
         global global_context
         for ov in global_context["overrides"]:
             nk = name + '_' + ov
@@ -55,21 +63,12 @@ class OverrideDict(dict):
                 return self[nk]
         return super().get(name, default)
 
-def expand_str(obj, context):
-    if isinstance(obj, dict):
-        for k in obj:
-             return { k:expand_str(v, context) for (k,v ) in obj.items() }
-    elif isinstance(obj, list):
-        return [ expand_str(e, context) for e in obj]
-    elif isinstance(obj, str):
-        s= obj.format(**context)
-        if (s != obj):
-            print(f'{obj} -> {s}')
-        return s
-    else:
-        return obj
 
 class YmlObject:
+    def __init__(self):
+        self.name = self.__class__
+        self.parent = None
+
     @staticmethod
     def post_init_children(obj, parent):
         if isinstance(obj, dict):
@@ -80,274 +79,377 @@ class YmlObject:
                 YmlObject.post_init_children(e, parent)
         elif isinstance(obj, YmlObject):
             obj.post_init(parent)
+        elif isinstance(obj, LazyStr):
+            obj.set_context(parent.parameters)
+        elif isinstance(obj, LazyEvaluator):
+            obj.set_context(parent.parameters)
 
     def post_init(self, parent):
-        global global_context
-        context = global_context
-        if hasattr(parent, "parameters"):
-            if parent.parameters:
-                context = {**context, **parent.parameters}
-                    
-        for member in dir(self):
-            if member.startswith('__') and member.endswith('__'):
-                continue
-            child = getattr(self, member)
-            setattr(self, member, expand_str(child, context))
-
+        self.parent = parent
         for member in dir(self):
             if member.startswith('__') and member.endswith('__'):
                 continue
             if member == "parent":
                 continue
-            child = getattr(self, member)
-            YmlObject.post_init_children(child, self)
+            YmlObject.post_init_children(getattr(self, member), self)
 
-        self.parent = parent
 
-class Evaluator(YmlObject):
+class LazyEvaluator():
     def __init__(self, s):
-        self.s = s
+        self.s = LazyStr(s)
+
+    def set_context(self, context):
+        self.s.context = context
 
     def get(self):
-        return eval(self.s.format({**global_context, **self.parent.parameters}))
+        return eval(str(self.s))
 
-    def post_init(self, parent):
-        self.parent = parent
-
-    def __repr__(self):        
+    def __repr__(self):
         return f'{self.get()}'
 
+
+class LazyStr(str):
+    def set_context(self, context):
+        self.context = context
+
+    def __repr__(self):
+        return str(self)
+
+    def __str__(self):
+        context = global_context
+        if hasattr(self, "context"):
+            context = {**context, **self.context}
+        try:
+            out = self.format(**context)
+        except KeyError as e:
+            close = difflib.get_close_matches(f'{e}', context)
+            print(f'{e} parameter has no definition. closest match {close}')
+            return self
+
+        return out
+
+
 class Action(YmlObject):
+    supported_keys = [("name", None), ("parameters", {}), ("defaults", {})]
+
+    def __init__(self, name="", defaults={}, parameters={}):
+        super().__init__()
+        self.name = name
+        self.defaults = defaults
+        self.parameters = parameters
+
     def run(self):
         return "N/A"
 
-class Test(Action):
-    @staticmethod
-    def from_yaml(context, filename, root = None):
-        main = PathFinder.locate(filename, current_dir = root)
-        with open(main, 'r') as f:
-            content = f.read()
-        for append in PathFinder.locateall(filename+"_append", current_dir = root):
-            with open(append, 'r') as f:
-                content += '\n' + f.read()
- 
-        loader = YamlExtendedLoader(content, _root=path.dirname(main))
-        r = loader.get_single_data()
-        loader.dispose()
-        r._root = path.dirname(main)
-        return r
-
-    def __init__(self, name, sequence, defaults = {}, parameters = {}, setup = [] , teardown = []):
-         self.name = name
-         self.sequence = sequence
-         self.defaults = defaults
-         self.setup = setup
-         self.teardown = teardown
-         self.parameters = parameters
-
     def post_init(self, parent):
-        self.parent = parent
-
         # merge default, context and parameters
-        parameters = {**self.defaults, **self.parameters}
+        parameters = self.defaults
+        if parent:
+            parameters = {**parameters, **parent.parameters}
+        parameters = {**parameters, **self.parameters}
         # remove items that have been deleted
-        parameters = { k: v for k,v in parameters.items() if v != None}
-
-        if "iterations" not in parameters:
-            parameters["iterations"] = 1
-        if "continue_on_fail" not in parameters:
-            parameters["continue_on_fail"] = 1
-
+        parameters = {k: v for k, v in parameters.items() if v != None}
         self.parameters = parameters
         super().post_init(parent)
 
 
+class Group(Action):
+    supported_keys = [("name", None), ("list", None),
+                      ("parameters", {}), ("defaults", {})]
+
+    def __init__(self, name, list, defaults={}, parameters={}):
+        super().__init__(name=name, defaults=defaults, parameters=parameters)
+        self.list = list
+        for test in self.list:
+            if not isinstance(Test):
+                raise Exception("Every element of the list must be a test")
+
+    def run(self):
+        for test in self.list:
+            test.run()
+
+
+class LoaderError(Exception):
+    pass
+
+
+class Test(Action):
+    supported_keys = [("name", None), ("sequence", None), ("setup", []),
+                      ("teardown", []), ("parameters", {}), ("defaults", {}),
+                      ("iterations", 1), ("continue_on_fail", False)]
+
+    @staticmethod
+    def from_yaml(filename, root=None):
+        filename = str(filename)
+        main = PathFinder.locate(filename, current_dir=root)
+        if not main:
+            raise LoaderError(f"Cannot locate {filename}")
+        with open(main, 'r') as f:
+            content = f.read()
+        for append in PathFinder.locateall(filename + "_append", current_dir=root):
+            with open(append, 'r') as f:
+                content += '\n' + f.read()
+
+        loader = YamlExtendedLoader(content, _path=main)
+        try:
+            r = loader.get_single_data()
+            r._root = path.dirname(main)
+        except LoaderError as e:
+            print(f'Error in {main}: {e} ')
+            r = None
+        finally:
+            loader.dispose()
+
+        return r
+
+    def __init__(self, name, sequence, defaults={}, parameters={}, setup=[], teardown=[], iterations=1, continue_on_fail=False):
+        super().__init__(name=name, defaults=defaults, parameters=parameters)
+        self.sequence = sequence
+        self.setup = setup
+        self.teardown = teardown
+        self.iterations = iterations
+        self.continue_on_fail = continue_on_fail
+
     def run(self):
         for a in self.setup:
             r = a.run()
-            if r == "failed" and not self.parameters.continue_on_fail:
+            if r == "failed" and self.continue_on_fail:
                 return "failed"
-        for i in range(0, self.parameters["iterations"]):
+        for i in range(0, self.iterations):
             for a in self.sequence:
                 r = a.run()
-                if r == "failed" and not self.parameters.continue_on_fail:
+                if r == "failed" and not self.continue_on_fail:
                     return "failed"
         for a in self.teardown:
             a.run()
-        return "Pass"    
+        return "Pass"
 
     def __repr__(self):
-         return "(name=%r, defaults=%s, param=%s, seq=%s)" % (
-             self.__class__.__name__, self.defaults, self.parameters, self.sequence)
+        return "(name=%r, defaults=%s, param=%s, seq=%s)" % (
+            self.__class__.__name__, self.defaults, self.parameters, self.sequence)
+
 
 class DeployFetch(Action):
+    supported_keys = [("name", None), ("src", None), ("dst", None)]
+
     def __init__(self, is_deploy, src, dst):
         self.is_deploy = is_deploy
         self.src = src
         self.dst = dst
 
     def run(self):
-        src = [ s.format(**self.parent.parameters) for s in self.src]
+        src = [s.format(**self.parent.parameters) for s in self.src]
         dst = self.dst.format(**self.parent.parameters)
         if self.is_deploy:
             print(f'deploy: {src} -> {dst}')
         else:
             print(f'fetch: {src} -> {dst}')
         return "N/A"
-        
+
     def __repr__(self):
         return "(name=%r, deploy %s -> %s)" % (
             self.__class__.__name__, self.src, self.dst)
 
+
 class Cmd(Action):
-     def __init__(self, cmd):
-         self.cmd = cmd
-     def __repr__(self):
-         return "(name=%r, cmd=%s)" % (
-             self.__class__.__name__, self.cmd)
+    supported_keys = [("name", None), ("cmd", None), ("defaults", {})]
+
+    def __init__(self, cmd, name=None, defaults={}):
+        super().__init__(name=name, defaults=defaults)
+        self.cmd = cmd
+
+    def __repr__(self):
+        return "(name=%r, cmd=%s)" % (
+            self.__class__.__name__, self.cmd)
+
 
 class DutCmd(Cmd):
     def run(self):
-        cmd = self.cmd.format(**self.parent.parameters)
+        cmd = self.cmd
         print(f'DUT cmd: {cmd}')
         return "N/A"
+
     def __repr__(self):
         return "(name=%r, cmd=%s)" % (
             self.__class__.__name__, self.cmd)
+
 
 class HostCmd(Cmd):
     def run(self):
-        cmd = self.cmd.format(**self.parent.parameters)
+        cmd = self.cmd
         print(f'HOST cmd: {cmd}')
         return "N/A"
+
     def __repr__(self):
         return "(name=%r, cmd=%s)" % (
             self.__class__.__name__, self.cmd)
 
+
 class PythonTest(Action):
-    def __init__(self, module, test, args):
+    supported_keys = [("name", None), ("module", None), ("test", None),
+                      ("args", {}), ("parameters", {}), ("defaults", {})]
+
+    def __init__(self, name, module, test, args, parameters, defaults):
+        super().__init__(name=name, parameters=parameters, defaults=defaults)
         self.module = module
         self.test = test
         self.args = args
 
     def run(self):
-        args = {}
-        module = self.module.format(**self.parent.parameters)
-        test = self.test.format(**self.parent.parameters)
-        for k,v in self.args.items():
-            if isinstance(v,str):
-                args[k] = v.format(**self.parent.parameters)
-            else:
-                args[k] = v
-        print(f'python test: {module}:{test}({args})')
+        module = self.module
+        test = self.test
+        print(f'python test: {module}:{test}({self.args})')
         return "N/A"
 
     def __repr__(self):
         return "(name=%r, test=%s, params=%s)" % (
             self.__class__.__name__, self.test, self.args)
 
-def get_field_overrides(dic, name, default = None, overrides = []):
-    for ov in global_context["overrides"]:
-        nk = name + '_' + ov
-        if nk in dic:
-            return dic[nk]
-    return dic.get(name, default)
+def construct_generic(loader, node: yaml.Node, cls, extras={}):
+    fields = OverrideDict(loader.construct_mapping(node))
+    params = {n: fields.get(n, default) for n, default in cls.supported_keys}
+
+    supported_keys = [n for n, _ in cls.supported_keys]
+
+    for f in fields:
+        if not f in params:
+            if '_' in f:
+                g = '_'.join(f.split('_')[:-1])
+                over = f.split('_')[-1]
+            else:
+                g = f
+                over = None
+            if not g in params:
+                close = ['_'.join([s, over]) if over else s for s in difflib.get_close_matches(f'{f}', supported_keys)]
+                print(f'Warning unused key "{f}" in {loader._path}. close matches {close}')
+
+    obj = cls(**{**params, **extras})
+    return obj
+
 
 def construct_test(loader, node: yaml.Node):
-    global global_context
-    fields = OverrideDict(loader.construct_mapping(node))
-    
-    name  = fields.get("name")
-    sequence = fields.get("sequence")
-    setup = fields.get("setup", [])
-    defaults = fields.get("defaults", {})
-    parameters = fields.get("parameters", {})
-    teardown = fields.get("teardown", [])
+    return construct_generic(loader, node, Test)
 
-    return Test(name = name, sequence = sequence, setup = setup, teardown = teardown, parameters = parameters, defaults = defaults)
+
+def construct_group(loader, node: yaml.Node):
+    return construct_generic(loader, node, Group)
+
 
 def construct_dut(loader, node: yaml.Node):
-    return DutCmd(loader.construct_scalar(node))
+    if isinstance(node, yaml.ScalarNode):
+        return DutCmd(loader.construct_scalar(node))
+    return construct_generic(loader, node, DutCmd)
+
 
 def construct_host(loader, node: yaml.Node):
-    return HostCmd(loader.construct_scalar(node))
+    if isinstance(node, yaml.ScalarNode):
+        return HostCmd(loader.construct_scalar(node))
+    return construct_generic(loader, node, HostCmd)
+
 
 def construct_python_test(loader, node: yaml.Node):
-    fields = OverrideDict(loader.construct_mapping(node))
-    return PythonTest(fields.get("module"), fields.get("test"), fields.get("args"))
+    return construct_generic(loader, node, PythonTest)
+
 
 def construct_deploy(loader, node: yaml.Node):
-    fields = OverrideDict(loader.construct_mapping(node))
-    return DeployFetch(is_deploy=True, src = fields.get("src"), dst = fields.get("dst"))
+    return construct_generic(loader, node, DeployFetch, {"is_deploy": True})
+
 
 def construct_fetch(loader, node: yaml.Node):
     fields = OverrideDict(loader.construct_mapping(node))
-    return DeployFetch(is_deploy=False, src = fields.get("src"), dst = fields.get("dst"))
+    return construct_generic(loader, node, DeployFetch, {"is_deploy": False})
 
-def construct_none(loader, node: yaml.Node):
-    return None
 
 class YamlExtendedLoader(yaml.FullLoader):
-    def __init__(self, content: str, _root: str):
-        self._root = _root
+    def __init__(self, content: str, _path: str):
+        self._path = _path
         super().__init__(content)
 
-#class PathFinder:
-    #def locate(current_dir, filename):
-        #return filename
-    #def locateall(current_dir, filename):
-        #return []
+    def construct_scalar(self, node):
+        s = super().construct_scalar(node)
+        if isinstance(s, str):
+            if ((s.startswith('f"') and s.endswith('"')) or
+                    (s.startswith("f'") and s.endswith("'"))):
+                return LazyStr(s[2:-1])
+            else:
+                return s
+
 
 def construct_from_yml(loader: YamlExtendedLoader, node: yaml.Node) -> Any:
+    if isinstance(node, yaml.ScalarNode):
+        return Test.from_yaml(node.value, root=path.dirname(loader._path))
+
     fields = OverrideDict(loader.construct_mapping(node))
     base_name = fields.get("path")
     params = fields.get("parameters", None)
-    obj = Test.from_yaml(global_context, base_name, root = loader._root)
-    if params != None:
+    obj = Test.from_yaml(base_name, root=path.dirname(loader._path))
+    if obj and params != None:
         obj.parameters = params
     return obj
 
+
 def construct_from_eval(loader: YamlExtendedLoader, node: yaml.Node) -> Any:
     s = loader.construct_scalar(node)
-    return Evaluator(s)
+    return LazyEvaluator(s)
 
+
+class VariableSetter(Action):
+    def __init__(self, var, value):
+        self.var = var
+        self.value = value
+
+    def run(self):
+        var = f'{self.var}'
+        value = eval(f'{self.value}')
+        self.parent.parameters[var] = eval(f'{self.value}')
+        print(f"SET {var} {self.parent.parameters[var]}")
+        return "ignore"
+
+
+def construct_set(loader: YamlExtendedLoader, node: yaml.Node) -> Any:
+    fields = OverrideDict(loader.construct_mapping(node))
+    var = fields.get("var")
+    value = fields.get("value")
+    return VariableSetter(var, value)
+
+
+yaml.add_constructor('!group', construct_group, YamlExtendedLoader)
 yaml.add_constructor('!test', construct_test, YamlExtendedLoader)
 yaml.add_constructor('!dut', construct_dut, YamlExtendedLoader)
 yaml.add_constructor('!host', construct_host, YamlExtendedLoader)
 yaml.add_constructor('!deploy', construct_deploy, YamlExtendedLoader)
 yaml.add_constructor('!fetch', construct_fetch, YamlExtendedLoader)
 yaml.add_constructor('!python', construct_python_test, YamlExtendedLoader)
-yaml.add_constructor('!remove', construct_none, YamlExtendedLoader)
 yaml.add_constructor('!yml', construct_from_yml, YamlExtendedLoader)
 yaml.add_constructor('!eval', construct_from_eval, YamlExtendedLoader)
-
+yaml.add_constructor('!set', construct_set, YamlExtendedLoader)
 
 if __name__ == "__main__":
         #r = yaml.load(f.read(), Loader = YamlExtendedLoader)
     PathFinder.add(sys.argv[2])
     PathFinder.add(sys.argv[3])
-    r = Test.from_yaml(global_context, sys.argv[1], "./")
-    r.post_init(None)
+    r = Test.from_yaml(sys.argv[1], "./")
+    if r:
+        r.post_init(None)
+        # print(yaml.dump(r))
+        r.run()
 
-    #print(yaml.dump(r))
-    r.run()
-
-#Action :
-    #does something.
-    #return pass or fail
+# Action :
+    # does something.
+    # return pass or fail
 
 #!test:
-    #derives from Action.
-    #return log from the action
-    #return metric
-    #has parameters, a setup, a body (sequence) that can be iterated,  a teardown
+    # derives from Action.
+    # return log from the action
+    # return metric
+    # has parameters, a setup, a body (sequence) that can be iterated,  a teardown
 
 #description (optionnal)
-#setup (optionnal): list of actions not iterated executed before the sequence
-#teardown(optionnal): list of actions not iterated executed after the sequence
-#sequence: list of actions
-#parameters (optionnal): dictionnary that will be used to adapt the actions
-#defaults (optionnal): default paremeters
+# setup (optionnal): list of actions not iterated executed before the sequence
+# teardown(optionnal): list of actions not iterated executed after the sequence
+# sequence: list of actions
+# parameters (optionnal): dictionnary that will be used to adapt the actions
+# defaults (optionnal): default paremeters
 
 #!deploy: an action that transfers files from host to DUT
 #!dut: shell cmd executed on the DUT

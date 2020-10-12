@@ -1,7 +1,7 @@
 !test
-    name: "ping host"
+    name: "echo"
     sequence:
-        - !dut echo {param1} {param2} {param3}
+        - !dut f'echo {param1} {param2} {param3}'
     defaults:
         param1: "default_1"
         param2: "default_2"
