@@ -326,12 +326,14 @@ class VariableSetter(Action):
         return "ignore"
 
 
-class PythonTest(Action):
+class PythonTest(Test):
     supported_keys = [("name", None), ("module", None), ("test", None),
                       ("args", {}), ("parameters", {}), ("defaults", {})]
 
     def __init__(self, name, module, test, args, parameters, defaults):
-        super().__init__(name=name, parameters=parameters, defaults=defaults)
+        if not name:
+            name = '.'.join([module,test])
+        super().__init__(name=name, sequence = [], parameters=parameters, defaults=defaults)
         self.module = module
         self.test = test
         self.args = args
