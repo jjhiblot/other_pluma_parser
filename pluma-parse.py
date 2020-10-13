@@ -263,7 +263,8 @@ class Test(Action):
 class DeployFetch(Action):
     supported_keys = [("name", None), ("src", None), ("dst", None)]
 
-    def __init__(self, is_deploy, src, dst):
+    def __init__(self, name, is_deploy, src, dst):
+        super().__init__(name = name)
         self.is_deploy = is_deploy
         self.src = src
         self.dst = dst
