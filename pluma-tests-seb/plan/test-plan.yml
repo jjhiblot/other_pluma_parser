@@ -4,6 +4,7 @@
     list:
         - !yml tests/examples/ping_bidir.yml
         - !yml tests/examples/uname.yml
+        - !yml tests/examples/set_var.yml
         - !yml
             path: tests/examples/echo.yml
             parameters:

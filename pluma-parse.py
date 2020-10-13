@@ -70,6 +70,30 @@ class YmlObject:
         self.parent = None
 
     @staticmethod
+    def update_children_params(obj, update):
+        if isinstance(obj, dict):
+            for k in obj:
+                YmlObject.update_children_params(obj[k], update)
+        elif isinstance(obj, list):
+            for e in obj:
+                YmlObject.update_children_params(e, update)
+        elif isinstance(obj, YmlObject):
+            obj.update_params(update)
+        elif isinstance(obj, LazyStr):
+            obj.update_context(update)
+        elif isinstance(obj, LazyEvaluator):
+            obj.update_context(update)
+
+    def update_params(self, update):
+        self.parameters.update(update)
+        for member in dir(self):
+            if member.startswith('__') and member.endswith('__'):
+                continue
+            if member == "parent":
+                continue
+            YmlObject.update_children_params(getattr(self, member), update)
+
+    @staticmethod
     def post_init_children(obj, parent):
         if isinstance(obj, dict):
             for k in obj:
@@ -80,9 +104,9 @@ class YmlObject:
         elif isinstance(obj, YmlObject):
             obj.post_init(parent)
         elif isinstance(obj, LazyStr):
-            obj.set_context(parent.parameters)
+            obj.update_context(parent.parameters)
         elif isinstance(obj, LazyEvaluator):
-            obj.set_context(parent.parameters)
+            obj.update_context(parent.parameters)
 
     def post_init(self, parent):
         self.parent = parent
@@ -98,8 +122,8 @@ class LazyEvaluator():
     def __init__(self, s):
         self.s = LazyStr(s)
 
-    def set_context(self, context):
-        self.s.context = context
+    def update_context(self, update):
+        self.s.update_context(update)
 
     def get(self):
         return eval(str(self.s))
@@ -109,8 +133,11 @@ class LazyEvaluator():
 
 
 class LazyStr(str):
-    def set_context(self, context):
-        self.context = context
+    def update_context(self, update):
+        if hasattr(self, "context"):
+            self.context.update(update)
+        else:
+            self.context = update
 
     def __repr__(self):
         return str(self)
@@ -171,7 +198,6 @@ class Group(Action):
 
 class LoaderError(Exception):
     pass
-
 
 class Test(Action):
     supported_keys = [("name", None), ("sequence", None), ("setup", []),
@@ -284,6 +310,21 @@ class HostCmd(Cmd):
         return "(name=%r, cmd=%s)" % (
             self.__class__.__name__, self.cmd)
 
+class VariableSetter(Action):
+    supported_keys = [("var", None), ("value", None)]
+
+    def __init__(self, var, value):
+        super().__init__(name = var)
+        self.var = var
+        self.value = value
+
+    def run(self):
+        var = str(self.var)
+        value = eval(str(self.value))
+        self.parent.update_params({var: value})
+        print(f"SET {var} <- {self.parent.parameters[var]}")
+        return "ignore"
+
 
 class PythonTest(Action):
     supported_keys = [("name", None), ("module", None), ("test", None),
@@ -391,19 +432,6 @@ def construct_from_yml(loader: YamlExtendedLoader, node: yaml.Node) -> Any:
 def construct_from_eval(loader: YamlExtendedLoader, node: yaml.Node) -> Any:
     s = loader.construct_scalar(node)
     return LazyEvaluator(s)
-
-
-class VariableSetter(Action):
-    def __init__(self, var, value):
-        self.var = var
-        self.value = value
-
-    def run(self):
-        var = f'{self.var}'
-        value = eval(f'{self.value}')
-        self.parent.parameters[var] = eval(f'{self.value}')
-        print(f"SET {var} {self.parent.parameters[var]}")
-        return "ignore"
 
 
 def construct_set(loader: YamlExtendedLoader, node: yaml.Node) -> Any:
