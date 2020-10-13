@@ -181,18 +181,18 @@ class Action(YmlObject):
 
 
 class Group(Action):
-    supported_keys = [("name", None), ("list", None),
+    supported_keys = [("name", None), ("tests", None),
                       ("parameters", {}), ("defaults", {})]
 
-    def __init__(self, name, list, defaults={}, parameters={}):
+    def __init__(self, name, tests, defaults={}, parameters={}):
         super().__init__(name=name, defaults=defaults, parameters=parameters)
-        self.list = list
-        for test in self.list:
+        self.tests = tests
+        for test in self.tests:
             if not isinstance(Test):
                 raise Exception("Every element of the list must be a test")
 
     def run(self):
-        for test in self.list:
+        for test in self.tests:
             if isinstance(test, Group):
                 print(f"===== Running group {test.name} ============")
                 test.run()
