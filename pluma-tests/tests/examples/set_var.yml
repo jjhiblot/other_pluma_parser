@@ -4,7 +4,7 @@
         - !set 
             var: count
             value: 1
-        - !dut f'echo count is set to {count}'
+        - !dut 'echo count is set to {count}'
         - !set 
             var: count
             value: !eval '{count} + 1'
@@ -17,14 +17,14 @@
         - !set 
             var: count
             value: !eval '{count} + 1'
-        - !dut f'echo count has incread to {count}'
-        - !dut f'echo count is still {count}'
-        - !dut f'echo This is a random value {random_gen}'
+        - !dut 'echo count has incread to {count}'
+        - !dut 'echo count is still {count}'
+        - !dut 'echo This is a random value {random_gen}'
         - !set 
             var: random_int
-            value: f'{random_gen}'
-        - !dut "f'echo This is a random value that we are going to remember: {random_int}'"
-        - !dut f'echo This is the memorized random value {random_int}'
-        - !dut f'echo This is another random value {random_gen}'
+            value: '{random_gen}'
+        - !dut "echo This is a random value that we are going to remember: {random_int}"
+        - !dut 'echo This is the memorized random value {random_int}'
+        - !dut 'echo This is another random value {random_gen}'
     defaults:
         random_gen: !eval random.randint(0,100)

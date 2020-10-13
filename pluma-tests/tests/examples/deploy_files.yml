@@ -9,6 +9,6 @@
         - !dut ls /tmp/file2 /tmp/file3
         - !deploy {src: ["file://dir1", "file://file*"], dst: "/tmp/dir2"}
         - !dut ls /tmp/dir2
-        - !deploy { src: [ 'f"{a_file}"' ], dst: "/tmp/dir2"}
+        - !deploy { src: [ "{a_file}" ], dst: "/tmp/dir2"}
     defaults:
         a_file: file4

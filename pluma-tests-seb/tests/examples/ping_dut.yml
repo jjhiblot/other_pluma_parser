@@ -2,6 +2,6 @@
     name: "ping dut"
     sequence:
         - !host
-            cmd: f'ping {DUT_IP} -w{reply_wait} | tee /tmp/ping.log'
+            cmd: 'ping {DUT_IP} -w{reply_wait} | tee /tmp/ping.log'
     defaults:
         reply_wait: 5

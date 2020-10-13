@@ -120,7 +120,7 @@ class YmlObject:
 
 class LazyEvaluator():
     def __init__(self, s):
-        self.s = LazyStr(s)
+        self.s = s
 
     def update_context(self, update):
         self.s.update_context(update)
@@ -417,11 +417,7 @@ class YamlExtendedLoader(yaml.FullLoader):
     def construct_scalar(self, node):
         s = super().construct_scalar(node)
         if isinstance(s, str):
-            if ((s.startswith('f"') and s.endswith('"')) or
-                    (s.startswith("f'") and s.endswith("'"))):
-                return LazyStr(s[2:-1])
-            else:
-                return s
+            return LazyStr(s)
 
 
 def construct_from_yml(loader: YamlExtendedLoader, node: yaml.Node) -> Any:
