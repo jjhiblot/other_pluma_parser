@@ -193,7 +193,12 @@ class Group(Action):
 
     def run(self):
         for test in self.list:
-            test.run()
+            if isinstance(test, Group):
+                print(f"===== Running group {test.name} ============")
+                test.run()
+            elif isinstance(test, Test):
+                print(f"===== Running test {test.name} ============")
+                test.run()
 
 
 class LoaderError(Exception):
@@ -426,8 +431,11 @@ def construct_from_yml(loader: YamlExtendedLoader, node: yaml.Node) -> Any:
     base_name = fields.get("path")
     params = fields.get("parameters", None)
     obj = Test.from_yaml(base_name, root=path.dirname(loader._path))
-    if obj and params != None:
-        obj.parameters = params
+    if obj:
+        if not obj.name:
+            obj.name = base_name
+        if params != None:
+            obj.parameters = params
     return obj
 
 
