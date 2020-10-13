@@ -3,6 +3,7 @@
     test: MemorySize    
     args:
         total_mb: "{mem_size}"
+        param1: "{param1}"
         available_mb: '{available_min}'
     defaults:
         #by default fail is less then 20% is available

@@ -1,3 +1,5 @@
 !group
     tests:
       - !yml kernel/meminfo.yml
+      - !yml {path: kernel/meminfo.yml, parameters: {param1: "5"}}
+      - !yml {path: kernel/meminfo.yml, parameters: {param1: "2", available_min: !eval "int({mem_size} / 3)"}}
